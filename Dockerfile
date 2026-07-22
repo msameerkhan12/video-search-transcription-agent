@@ -1,7 +1,8 @@
 # Dockerfile for deploying the backend to SnapDeploy.
-# SnapDeploy auto-detects the port from this file's EXPOSE line, similar
-# to Northflank — it does not inject a PORT env var automatically, so
-# this container listens on a fixed port rather than reading $PORT.
+# SnapDeploy auto-detects the port from this file's EXPOSE line, but for
+# FastAPI apps it defaults its own expectation to port 8000 if no base
+# config is found — so this container listens on 8000 to match, rather
+# than fighting the platform's auto-detection.
 
 FROM python:3.11-slim
 
@@ -21,7 +22,6 @@ COPY . .
 # see README "Known limitations" for details.
 RUN mkdir -p /app/temp_audio /app/knowledge_base
 
-# Fixed port — make sure this matches the port SnapDeploy detects/configures
-# for this service.
-EXPOSE 8080
+# Fixed port — matches SnapDeploy's default FastAPI port expectation (8000).
+EXPOSE 8000
 CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
