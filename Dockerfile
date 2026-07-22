@@ -24,4 +24,4 @@ RUN mkdir -p /app/temp_audio /app/knowledge_base
 # Fixed port — make sure this matches the port SnapDeploy detects/configures
 # for this service.
 EXPOSE 8080
-CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
