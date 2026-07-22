@@ -2,7 +2,6 @@
 .env
 frontend/.env
 frontend/.env.local
-frontend/config.js
 
 # Python
 __pycache__/
