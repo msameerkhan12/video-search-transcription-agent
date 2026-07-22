@@ -1,9 +1,8 @@
-# 🎬 Video Agent — Video Search & Transcription Agent
-
+## Video Search & Transcription Agent
 An AI agent that takes a natural-language query, finds a matching YouTube
 video, extracts and transcribes its audio, and saves the transcript to a
 local knowledge base — orchestrated as a LangGraph pipeline and exposed
-through a small web UI.
+through a small web UI, made publicly reachable via **Cloudflare Tunnel**.
 
 ---
 
@@ -15,7 +14,7 @@ through a small web UI.
 4. [Repository Structure](#4-repository-structure)
 5. [Setup — Local Development](#5-setup--local-development)
 6. [Running the Project Locally](#6-running-the-project-locally)
-7. [Deployment](#7-deployment)
+7. [Deployment — Cloudflare Tunnel + Vercel](#7-deployment--cloudflare-tunnel--vercel)
 8. [API Reference](#8-api-reference)
 9. [Known Limitations](#9-known-limitations)
 10. [Troubleshooting](#10-troubleshooting)
@@ -74,8 +73,6 @@ flowchart TD
     style K fill:#14171b,stroke:#262b31,color:#e7e9ec
 ```
 
-GitHub renders this diagram natively — no image file needed, and it stays
-in sync as long as you edit the diagram text alongside the code.
 
 Each node in the LangGraph pipeline can fail independently. A failure
 short-circuits the remaining nodes; the graph carries an `error` /
@@ -92,6 +89,16 @@ exactly which step failed and why.
 | 3. Transcribe | `TranscriptionTool` | Sends the audio file to Groq's Whisper-large-v3 endpoint; chunks the file first if it exceeds Groq's 25MB limit |
 | 4. Save | `KnowledgeBaseWriter` | Writes the transcript + video metadata to a timestamped JSON file in `/knowledge_base` |
 
+**Live deployment's actual request path:**
+
+```
+Browser → Vercel (static frontend) → Cloudflare Tunnel (public edge)
+        → your machine's localhost:8000 (FastAPI + the pipeline above)
+```
+
+The backend never leaves your own machine. Cloudflare Tunnel just gives it
+a public HTTPS address without opening any router ports.
+
 ---
 
 ## 3. Tech Stack
@@ -104,7 +111,7 @@ exactly which step failed and why.
 | Transcription | Groq API, whisper-large-v3 | Fast, generous free tier (2,000 requests/day), OpenAI-compatible |
 | Backend | FastAPI | Thin, typed HTTP wrapper around the agent; async-friendly if the pipeline grows |
 | Frontend | Plain HTML/CSS/JS | Single page, a handful of UI states (query, steps, transcript, error) — no build step needed |
-| Backend deployment | SnapDeploy (Docker) | Free tier: 10 deploys/day, up to 4 containers, 512MB RAM / 0.25 vCPU per container, auto-sleep/auto-wake, no credit card required per their stated free-tier terms |
+| Backend exposure | **Cloudflare Tunnel** (`cloudflared`) | See [Section 7](#why-cloudflare-tunnel) for the full reasoning |
 | Frontend deployment | Vercel | Free tier, zero-config static hosting, instant redeploys on push |
 
 ---
@@ -113,7 +120,6 @@ exactly which step failed and why.
 
 ```
 video-agent/
-├── Dockerfile                   # builds the backend container for SnapDeploy
 ├── agent.py                     # LangGraph pipeline definition
 ├── api.py                       # FastAPI app (POST /run, GET /health)
 ├── config.py                    # env vars, constants, size/duration caps
@@ -132,6 +138,7 @@ video-agent/
 │   ├── favicon.svg              # site icon
 │   ├── favicon.ico              # fallback icon for browsers that don't support SVG favicons
 │   ├── apple-touch-icon.png     # iOS/Safari home-screen icon
+│   ├── config.js                # committed — holds the backend URL, not a secret
 │   └── config.example.js
 └── README.md
 ```
@@ -147,6 +154,9 @@ video-agent/
   - Windows: `choco install ffmpeg`, or download from ffmpeg.org and add it to PATH
   - macOS: `brew install ffmpeg`
   - Linux: `sudo apt install ffmpeg`
+- `cloudflared` (see [Section 7](#installing-cloudflared) for install steps
+  per OS) — required to expose the backend publicly. Not needed if you're
+  only running everything on `localhost`.
 
 **Clone and set up the environment:**
 
@@ -198,69 +208,130 @@ complete.
 
 ---
 
-## 7. Deployment
+## 7. Deployment — Cloudflare Tunnel + Vercel
 
-### Backend → SnapDeploy
+### Why Cloudflare Tunnel
 
-1. Push this repo to GitHub if it isn't already there — SnapDeploy deploys
-   from a connected git repo.
-2. Go to https://snapdeploy.dev/register and sign up. Per SnapDeploy's
-   stated free-tier terms, no credit card is required for the free plan
-   (10 deploys/day, up to 4 containers). Confirm this holds true for your
-   account as you go through signup — if a card prompt appears at any
-   point, it contradicts their stated terms and is worth double-checking
-   before proceeding.
-3. Create a new deployment/service and connect this GitHub repo
-   (`m-sameerkhan/Video-Search-Transcription-Agent`), branch `main`.
-4. SnapDeploy should auto-detect the `Dockerfile` at the repo root and
-   build from it directly.
-5. **Port:** SnapDeploy auto-detects the port from this Dockerfile's
-   `EXPOSE 8080` line. If it asks you to confirm a port manually, use
-   **8080** to match the `CMD`.
-6. **Environment variables:** add these as runtime variables:
-   - `SERPAPI_KEY`
-   - `GROQ_API_KEY`
-   - `ALLOWED_ORIGINS` — leave a placeholder like `http://localhost:5173`
-     for now; update it once your Vercel URL is live (see below).
+This project's backend needs `ffmpeg`, `yt-dlp`, disk I/O for temp audio
+files, and can run for several minutes on longer videos — a genuine small
+server process, not something that fits inside a typical serverless
+function's time/memory limits. Given that, three deployment paths were
+considered for actually exposing it:
 
-   Never commit `.env` — secrets live only in SnapDeploy's environment
-   variable settings.
-7. Deploy. SnapDeploy assigns a public URL on a `*.snapdeploy.app`
-   subdomain by default (custom domains are a paid "Always-On" feature).
-8. **Free-tier behavior:** the free tier auto-sleeps when idle and
-   auto-wakes in roughly 10-30 seconds on the next request — similar
-   cold-start tradeoff to Render's free tier. You're also limited to
-   10 deploys per day, which is generous for iterating on a small project
-   but worth knowing if you're pushing frequently.
+- **A hosted container platform** (Render, SnapDeploy, Fly.io, etc.) —
+  works, but means signing up for another service, building/pushing a
+  Docker image, and living with that platform's free-tier constraints
+  (cold starts, deploy caps, ephemeral storage regardless).
+- **Cloudflare Containers** — Cloudflare's own container product, but it
+  requires the **$5/month Workers Paid plan** (no free tier for Containers
+  specifically) and a whole extra layer of complexity: a separate
+  JavaScript/TypeScript Worker using a `Container` class backed by a
+  Durable Object, a `wrangler.jsonc` config, and `npx wrangler deploy`
+  with Docker running locally to build and push the image. That's a
+  disproportionate amount of new surface area for what this project needs.
+- **Cloudflare Tunnel (`cloudflared`)** — genuinely free, no account
+  needed for a "quick tunnel," no Docker build, no extra language or
+  framework. It's a small daemon that opens an *outbound* connection from
+  this machine to Cloudflare's edge network, and Cloudflare hands back a
+  public HTTPS URL that forwards straight to `localhost:8000`. The
+  backend code doesn't change at all — it has no idea it's being reached
+  from the internet.
 
-### Frontend → Vercel
+**The honest tradeoff:** Cloudflare Tunnel isn't hosting — it's exposing.
+The machine running `uvicorn` and `cloudflared` has to stay on and both
+processes have to keep running for the public URL to work at all. That's
+a real limitation compared to an always-on hosted backend, but for a
+project meant to be demoed and iterated on locally (rather than run
+unattended 24/7), it was the better fit: zero cost, minutes of setup,
+no new account or platform to learn.
 
-1. Push the `frontend/` folder to GitHub (as part of this repo, or its own repo).
-2. Go to https://vercel.com/new and import the project.
-   - **Framework preset:** Other (it's static HTML/CSS/JS, no build step)
-   - **Root directory:** `frontend/` (if the repo root contains other files)
-3. Before or after the first deploy, edit `frontend/config.js` (copied from
-   `config.example.js`) to point at your live SnapDeploy URL, e.g.:
-   ```js
-   window.API_BASE_URL = "https://<your-service>.snapdeploy.app";
+### Installing `cloudflared`
+
+| OS | Command |
+|---|---|
+| Windows | `winget install --id Cloudflare.cloudflared` |
+| macOS | `brew install cloudflared` |
+| Linux | See https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/ for your distro's package |
+
+**Windows-specific note:** after installing, **fully close and reopen
+every terminal window** (not just a new tab in an already-open one) before
+running `cloudflared`, so it picks up the updated PATH. If
+`cloudflared --version` still isn't recognized after a full restart of
+your terminal app, see [Troubleshooting](#10-troubleshooting) — this is a
+real, commonly-hit snag on Windows.
+
+### Setup steps
+
+1. **Start the backend**, in its own terminal:
+   ```bash
+   uvicorn api:app --reload --port 8000
    ```
-4. Push the change — Vercel redeploys automatically on every push to the
-   connected branch. Your frontend will be live at
-   `https://<your-project>.vercel.app`.
-5. Go back to SnapDeploy's environment variables (step 6 above) and set
-   `ALLOWED_ORIGINS` to this Vercel URL, so CORS allows the frontend to
-   call the backend.
 
-### Site icon
+2. **Start the tunnel**, in a separate terminal (plain shell is fine — this
+   one doesn't need conda activated):
+   ```bash
+   cloudflared tunnel --url http://localhost:8000
+   ```
+   Within a few seconds it prints a public URL:
+   ```
+   https://<random-words>.trycloudflare.com
+   ```
 
-The frontend ships with `frontend/favicon.svg` — a small play-button mark
-in the same accent color as the UI. It's already wired into
-`index.html` via a `<link rel="icon">` tag and shown next to the title in
-the header. `favicon.ico` and `apple-touch-icon.png` cover browsers and
-devices (older browsers, iOS home-screen bookmarks) that don't render an
-SVG favicon directly. To use a different icon, swap out all three files
-and keep the same filenames, or update the `href`/`src` references in
-`index.html` if you rename them.
+3. **Test it directly** — open
+   `https://<random-words>.trycloudflare.com/health` in a browser (typing
+   a URL directly bypasses CORS, so this is a clean test of whether the
+   tunnel and backend are actually reachable). You should see
+   `{"status":"ok"}`.
+
+4. **Point the frontend at the tunnel** — edit `frontend/config.js`:
+   ```js
+   window.API_BASE_URL = "https://<random-words>.trycloudflare.com";
+   ```
+
+5. **Allow the frontend's origin in CORS** — edit `.env`:
+   ```
+   ALLOWED_ORIGINS=http://localhost:5173,https://<your-project>.vercel.app
+   ```
+   This is your **frontend's** URL, not the tunnel URL — CORS controls who
+   is allowed to *call* the API, which has nothing to do with what
+   address the API itself is reachable at.
+   `uvicorn --reload` does **not** pick up `.env` changes automatically —
+   stop it (Ctrl+C) and restart it after editing this file.
+
+6. **Commit and push `config.js`** — it's intentionally tracked in this
+   repo (not gitignored), since it holds a backend URL, not a secret:
+   ```bash
+   git add frontend/config.js
+   git commit -m "Update backend URL"
+   git push
+   ```
+
+7. **Deploy the frontend to Vercel:**
+   - Go to https://vercel.com/new, import this repo
+   - **Root Directory:** set explicitly to `frontend` — otherwise Vercel
+     scans the repo root, finds `api.py`/`requirements.txt`, and
+     auto-detects a wrong "FastAPI" Application Preset
+   - **Framework Preset:** should auto-correct to `Other` once Root
+     Directory is set correctly; double-check before deploying
+   - Leave Build Command / Output Directory blank — there's no build step
+   - Click **Deploy**
+
+### Keeping the tunnel URL fresh
+
+**Quick tunnels don't persist across restarts.** Every time you stop and
+re-run `cloudflared tunnel --url ...`, you get a *new* random
+`trycloudflare.com` subdomain — it is not the same URL as last time. So
+after any restart:
+
+1. Copy the new URL from the terminal
+2. Update `frontend/config.js`
+3. Commit and push — Vercel redeploys automatically within ~30 seconds
+
+For a **permanent** URL instead of a fresh one every session, you'd need a
+*named* tunnel: add a domain to your Cloudflare account, run a one-time
+`cloudflared tunnel login`, and use a config file instead of `--url`. Not
+covered here since it requires owning a domain, but the quick-tunnel setup
+above is the free, no-domain-needed path used for this project.
 
 ---
 
@@ -278,19 +349,30 @@ Success response:
 {
   "success": true,
   "video_meta": {
-    "video_url": "https://youtube.com/watch?v=...",
-    "title": "Transformers Explained in 5 Minutes",
-    "channel": "Some Channel",
-    "duration": "5:12",
-    "duration_seconds": 312
+    "video_url": "https://www.youtube.com/watch?v=SZorAJ4I-sA",
+    "title": "Transformers, explained: Understand the model behind GPT, BERT, and T5",
+    "channel": "Google Cloud Tech",
+    "duration": "9:11",
+    "duration_seconds": 551
   },
-  "transcript_path": "/app/knowledge_base/transformers-explained-1737400000.json",
-  "transcript_preview": "In this video we'll break down...",
+  "transcript_preview": "The neat thing about working in machine learning is that every few years, somebody invents something crazy that makes you totally reconsider what's possible...",
   "steps_log": [
-    {"tool": "VideoSearchTool", "input": "explain transformers in 5 minutes", "output": "Transformers Explained in 5 Minutes"},
-    {"tool": "AudioExtractionTool", "input": "https://youtube.com/watch?v=...", "output": "/app/temp_audio/ab12cd34.mp3"},
-    {"tool": "TranscriptionTool", "input": "/app/temp_audio/ab12cd34.mp3", "output": "In this video we'll break down..."},
-    {"tool": "KnowledgeBaseWriter", "input": "Transformers Explained in 5 Minutes", "output": "transformers-explained-1737400000.json"}
+    {
+      "tool": "VideoSearchTool",
+      "output": "Video found successfully"
+    },
+    {
+      "tool": "AudioExtractionTool",
+      "output": "Audio extracted successfully"
+    },
+    {
+      "tool": "TranscriptionTool",
+      "output": "Transcript generated successfully"
+    },
+    {
+      "tool": "KnowledgeBaseWriter",
+      "output": "Transcript saved to knowledge base"
+    }
   ],
   "error": null,
   "failed_step": null
@@ -301,11 +383,23 @@ Failure response (e.g. video too long):
 ```json
 {
   "success": false,
+  "video_meta": null,
+  "transcript_path": null,
+  "transcript_preview": null,
+  "transcript_full": null,
   "steps_log": [
-    {"tool": "VideoSearchTool", "input": "...", "output": "Some Long Documentary"},
-    {"tool": "AudioExtractionTool", "input": "...", "output": "FAILED: Video is 94 minutes long, which exceeds the 60-minute cap. Choose a shorter video."}
+    {
+      "tool": "VideoSearchTool",
+      "input": "Complete RAG Crash Course With Langchain In 2 Hours",
+      "output": "Complete RAG Crash Course With Langchain In 2 Hours"
+    },
+    {
+      "tool": "AudioExtractionTool",
+      "input": "https://www.youtube.com/watch?v=o126p1QN_RI",
+      "output": "FAILED: Video is 128 minutes long, which exceeds the 60-minute cap. Choose a shorter video."
+    }
   ],
-  "error": "Video is 94 minutes long, which exceeds the 60-minute cap. Choose a shorter video.",
+  "error": "Video is 128 minutes long, which exceeds the 60-minute cap. Choose a shorter video.",
   "failed_step": "extract"
 }
 ```
@@ -319,26 +413,25 @@ Failure response (e.g. video too long):
 
 ## 9. Known Limitations
 
-- **Ephemeral storage.** SnapDeploy's filesystem doesn't persist across
-  auto-sleep/auto-wake cycles or redeploys on the free tier — anything in
-  `/knowledge_base` or `/temp_audio` is lost. Fine for a demo; SnapDeploy's
-  free tier has no free database add-on either, so anything durable would
-  need an external store.
-- **10 deploys/day cap.** Generous for normal iteration, but worth pacing
-  if you're pushing many small commits in a short window.
-- **Auto-sleep on the free tier.** Free containers sleep when idle and
-  wake in roughly 10-30 seconds on the next request — same tradeoff as
-  Render's cold starts. Always-on (no sleep) is a paid feature.
-- **No custom domain on the free tier.** You get a `*.snapdeploy.app`
-  subdomain; custom domains require the paid Always-On tier.
-- **60-minute video cap.** Enforced before download, mainly to keep the
-  container's disk usage bounded. A 60-minute video will often exceed
-  Groq's free-tier 25MB upload limit on its own — chunking (below) is what
-  actually keeps transcription working at this length, not the cap itself.
+- **Your machine has to stay on.** This is the core tradeoff of using
+  Cloudflare Tunnel instead of a hosted backend: the live site only works
+  while your computer, `uvicorn`, and `cloudflared` are all running
+  simultaneously. Closing the tunnel terminal, sleeping, or restarting
+  your machine takes the live demo down until you start both again.
+- **Quick tunnel URLs are not permanent.** Every fresh
+  `cloudflared tunnel --url ...` run generates a new random
+  `trycloudflare.com` subdomain — it does not persist or auto-update
+  `config.js` for you.
+- **Ephemeral storage.** `/knowledge_base` and `/temp_audio` live on your
+  local disk — fine for a demo, but there's no backup or sync; a disk
+  wipe or reinstall loses everything in them.
+- **60-minute video cap.** Enforced before download, mainly to keep disk
+  usage and total pipeline time bounded. Most videos at this length will
+  need chunking (below) rather than being an edge case.
 - **Chunking is best-effort.** Audio over 25MB is split into 10-minute mp3
-  chunks and transcribed sequentially; at the 60-minute cap, most videos
-  will now need chunking rather than the exception — expect more requests
-  per video against Groq's daily quota, and slower end-to-end runs.
+  chunks and transcribed sequentially; longer videos mean more requests
+  against Groq's daily quota and slower end-to-end runs (a ~45-50 minute
+  video took roughly 5 minutes end-to-end in testing).
 - **Free-tier rate limits.** SerpApi: 100 searches/month. Groq: 2,000
   transcription requests/day, 25MB/request. This agent does not queue or
   retry across these limits — a request that hits them fails with
@@ -353,10 +446,13 @@ Failure response (e.g. video too long):
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `ffmpeg not found` error | ffmpeg isn't on PATH | Install ffmpeg and restart your terminal/shell |
-| CORS error in browser console | `ALLOWED_ORIGINS` doesn't include your frontend's URL | Add the exact frontend origin (including `https://`, no trailing slash) to the backend's `ALLOWED_ORIGINS` |
-| SnapDeploy build doesn't use the Dockerfile | Build method not set to Dockerfile | Explicitly select Dockerfile as the build method in the service settings, if given the option |
-| Service unreachable after deploy, or slow first response | Free-tier container was auto-asleep | Expected — send a request and wait 10-30 seconds for it to wake up |
-| Hit the daily deploy cap | More than 10 deploys in a day on the free tier | Wait for the daily limit to reset, or batch your commits before pushing |
+| `cloudflared` not recognized after `winget install` | New terminal session hasn't picked up the updated PATH yet (a new tab in an already-open terminal app can still inherit the old PATH) | Fully close every terminal window and reopen from the Start menu. If it still fails, refresh the current session's PATH manually: `$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")` |
+| `uvicorn`/other conda-env tools stop being recognized after the PATH-refresh fix above | That refresh rebuilds `$env:Path` from only Machine + User registry values, which drops the PATH entries `conda activate` had prepended for that session | Run `conda activate video-agent` again in that same terminal to restore them. Better long-term: use separate terminals — one with conda activated for `uvicorn`, one plain for `cloudflared` |
+| `config.js` returns 404 on the deployed Vercel site | The file is still listed in `.gitignore`, so Git silently never tracked or pushed it, even though it exists locally | Remove the `frontend/config.js` line from `.gitignore`, then `git add .gitignore frontend/config.js`, commit, and push |
+| Frontend error says "Could not reach the backend at `http://localhost:8000`" even on the live Vercel site | `window.API_BASE_URL` is undefined in the browser (falls back to the default) — usually because `config.js` 404'd or was never deployed | Visit `<your-site>/config.js` directly in the browser to confirm it's being served with the right content; if 404, see the row above |
+| Frontend error says "Could not reach the backend" at the *correct* tunnel URL, but visiting `<tunnel-url>/health` directly in the browser works fine | This is a CORS problem, not a connectivity problem — direct URL visits bypass CORS, but `fetch()` calls from JS don't | Check the browser console (F12) for a message mentioning "CORS policy"; then confirm `.env`'s `ALLOWED_ORIGINS` includes your exact Vercel URL, and restart uvicorn (it doesn't reload `.env` automatically) |
+| Vercel auto-detects "FastAPI" as the Application Preset | Root Directory wasn't set to `frontend` before Vercel scanned the repo, so it found `api.py`/`requirements.txt` at the root | Set Root Directory to `frontend` first — the preset should auto-correct to `Other` once you do |
+| Live Vercel site loads but every query fails | The Cloudflare tunnel (or `uvicorn`) isn't running anymore, or the tunnel URL changed since the last deploy | Confirm both are running locally; if the tunnel URL changed, update `config.js`, commit, and push |
 | Transcription fails on long videos | File exceeds Groq's per-request size limit | Confirm chunking is enabled in `config.py`, or lower `MAX_VIDEO_DURATION_SECONDS` |
 | 403 / quota errors from SerpApi or Groq | Free-tier limit hit | Wait for the quota to reset, or upgrade the respective plan |
 
