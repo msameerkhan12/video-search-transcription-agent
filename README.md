@@ -20,6 +20,7 @@ through a small web UI.
 9. [Known Limitations](#9-known-limitations)
 10. [Troubleshooting](#10-troubleshooting)
 
+
 ---
 
 ## 1. Project Overview
@@ -104,7 +105,7 @@ exactly which step failed and why.
 | Transcription | Groq API, whisper-large-v3 | Fast, generous free tier (2,000 requests/day), OpenAI-compatible |
 | Backend | FastAPI | Thin, typed HTTP wrapper around the agent; async-friendly if the pipeline grows |
 | Frontend | Plain HTML/CSS/JS | Single page, a handful of UI states (query, steps, transcript, error) — no build step needed |
-| Backend deployment | Render (Docker) | Free tier, container-based, works well for a FastAPI + ffmpeg backend |
+| Backend deployment | Zeabur (Docker) | Free plan with no card required, up to 1 vCPU / 2GB RAM per service — more headroom than most free container hosts for ffmpeg + audio chunking |
 | Frontend deployment | Vercel | Free tier, zero-config static hosting, instant redeploys on push |
 
 ---
@@ -113,7 +114,7 @@ exactly which step failed and why.
 
 ```
 video-agent/
-├── Dockerfile                   # builds the backend container for Render
+├── Dockerfile                   # builds the backend container for Zeabur
 ├── agent.py                     # LangGraph pipeline definition
 ├── api.py                       # FastAPI app (POST /run, GET /health)
 ├── config.py                    # env vars, constants, size/duration caps
@@ -130,6 +131,8 @@ video-agent/
 │   ├── index.html
 │   ├── app.js
 │   ├── favicon.svg              # site icon
+│   ├── favicon.ico              # fallback icon for browsers that don't support SVG favicons
+│   ├── apple-touch-icon.png     # iOS/Safari home-screen icon
 │   └── config.example.js
 └── README.md
 ```
@@ -198,34 +201,40 @@ complete.
 
 ## 7. Deployment
 
-### Backend → Render
+### Backend → Zeabur
 
-1. Push this repo to GitHub if it isn't already there — Render deploys from
-   a git repo, not a manual upload.
-2. Go to https://dashboard.render.com/new/web-service and connect the repo.
-   - **Environment: Docker** — Render should auto-detect the `Dockerfile`
-     at the repo root. If it doesn't pick it up automatically, set it
-     manually; the native Python runtime won't work here since it doesn't
-     ship `ffmpeg`, which both yt-dlp and pydub shell out to.
-   - Visibility/plan: your choice — the free tier is fine for a demo.
-3. This repo already includes the `Dockerfile` the service needs — it
-   installs `ffmpeg`, installs `requirements.txt`, and runs
-   `uvicorn api:app --host 0.0.0.0 --port $PORT` (Render injects `PORT` at
-   runtime, so don't hardcode a port yourself).
-4. In the service's **Settings → Environment**, add:
+1. Push this repo to GitHub if it isn't already there — Zeabur deploys
+   from a connected git repo.
+2. Go to https://zeabur.com and sign up (GitHub sign-in is the fastest
+   route since you'll be connecting a repo anyway). No credit card is
+   required for the Free Trial Plan.
+3. Create a new **Project**, then click **Add Service** → **Deploy from
+   GitHub** and select this repo.
+4. Zeabur automatically detects the `Dockerfile` at the repo root and
+   builds using it — you'll see a Docker icon on the service once this
+   kicks in. If it instead tries to auto-detect a different build method,
+   make sure no `ZBPACK_IGNORE_DOCKERFILE` variable is set, since that
+   flag tells Zeabur to skip the Dockerfile.
+5. **Environment variables:** open the service's **Variables** tab and add:
    - `SERPAPI_KEY`
    - `GROQ_API_KEY`
-   - `ALLOWED_ORIGINS` — your Vercel frontend's URL (set this after step 4
-     below in the frontend section)
+   - `ALLOWED_ORIGINS` — leave a placeholder like `http://localhost:5173`
+     for now; you'll update it once you have your Vercel URL (see below).
 
-   Never commit `.env` — secrets live only in Render's environment settings.
-5. Deploy. Render rebuilds and redeploys automatically on every push to the
-   connected branch. Your backend will be live at
-   `https://<your-service-name>.onrender.com`.
-6. **Free-tier note:** Render spins down free web services after ~15
-   minutes of inactivity, so the first request after a quiet period takes
-   30–60 seconds while it wakes back up — not a bug, just how the free
-   tier behaves.
+   Never commit `.env` — secrets live only in Zeabur's Variables tab.
+6. **Port:** Zeabur reads the `PORT` environment variable automatically
+   and binds public networking to it — the `Dockerfile`'s `CMD` already
+   listens on `$PORT` (falling back to `8080` locally), so nothing extra
+   to configure here.
+7. **Domain:** open the **Networking** tab and click **Generate Domain**
+   to get a public `https://<your-service>.zeabur.app` URL for the
+   backend.
+8. Zeabur rebuilds and redeploys automatically on every push to the
+   connected branch.
+9. **Free-tier note:** like Render, Zeabur's free services auto-sleep
+   after a period of inactivity and take a few seconds to wake on the
+   next request — a fair tradeoff for the extra RAM headroom (up to 2GB)
+   compared to most other card-free free tiers.
 
 ### Frontend → Vercel
 
@@ -234,14 +243,14 @@ complete.
    - **Framework preset:** Other (it's static HTML/CSS/JS, no build step)
    - **Root directory:** `frontend/` (if the repo root contains other files)
 3. Before or after the first deploy, edit `frontend/config.js` (copied from
-   `config.example.js`) to point at your live Render URL, e.g.:
+   `config.example.js`) to point at your live Zeabur URL, e.g.:
    ```js
-   const API_BASE_URL = "https://<your-service-name>.onrender.com";
+   window.API_BASE_URL = "https://<your-service>.zeabur.app";
    ```
 4. Push the change — Vercel redeploys automatically on every push to the
    connected branch. Your frontend will be live at
    `https://<your-project>.vercel.app`.
-5. Go back to Render's environment variables (step 4 above) and set
+5. Go back to Zeabur's Variables tab (step 5 above) and set
    `ALLOWED_ORIGINS` to this Vercel URL, so CORS allows the frontend to
    call the backend.
 
@@ -250,9 +259,11 @@ complete.
 The frontend ships with `frontend/favicon.svg` — a small play-button mark
 in the same accent color as the UI. It's already wired into
 `index.html` via a `<link rel="icon">` tag and shown next to the title in
-the header. To use a different icon, swap out `favicon.svg` and keep the
-same filename, or update the `href`/`src` references in `index.html` if
-you rename it.
+the header. `favicon.ico` and `apple-touch-icon.png` cover browsers and
+devices (older browsers, iOS home-screen bookmarks) that don't render an
+SVG favicon directly. To use a different icon, swap out all three files
+and keep the same filenames, or update the `href`/`src` references in
+`index.html` if you rename them.
 
 ---
 
@@ -311,14 +322,19 @@ Failure response (e.g. video too long):
 
 ## 9. Known Limitations
 
-- **Ephemeral storage.** Render's free tier wipes local disk on every
-  restart or redeploy — anything in `/knowledge_base` or `/temp_audio`
-  is lost. Fine for a demo; add a Render persistent disk (paid tiers only)
-  or an external store (S3, a real database) before relying on this for
+- **Ephemeral storage.** Zeabur's free tier wipes local disk on every
+  restart or redeploy — anything in `/knowledge_base` or `/temp_audio` is
+  lost. Fine for a demo; add a Zeabur Volume (persistent storage) or an
+  external store (S3, a real database) before relying on this for
   anything durable.
-- **Cold starts on the free tier.** Render spins down free web services
-  after ~15 minutes of no traffic, so the first request after a quiet
-  period takes 30–60 seconds while the container wakes up.
+- **Auto-sleep on the free tier.** Free-plan services sleep after a
+  period of inactivity and take a few seconds to wake on the next
+  request — similar to Render's cold-start behavior, though generally
+  faster given the extra RAM headroom.
+- **Credit-based free tier.** The Free Trial Plan runs on a recurring
+  monthly credit rather than a fixed hours allowance. Heavy or constant
+  usage (large videos, frequent chunking) could burn through the credit
+  faster than a lightly-used demo would.
 - **60-minute video cap.** Enforced before download, mainly to keep the
   container's disk usage bounded. Unlike the old 30-minute cap, a
   60-minute video will often exceed Groq's free-tier 25MB upload limit on
@@ -343,8 +359,9 @@ Failure response (e.g. video too long):
 |---|---|---|
 | `ffmpeg not found` error | ffmpeg isn't on PATH | Install ffmpeg and restart your terminal/shell |
 | CORS error in browser console | `ALLOWED_ORIGINS` doesn't include your frontend's URL | Add the exact frontend origin (including `https://`, no trailing slash) to the backend's `ALLOWED_ORIGINS` |
-| Render build fails | Wrong environment selected | Make sure the service's **Environment** is set to **Docker**, not the native Python runtime |
-| Slow first response after idle time | Free-tier service spun down | Expected — Render free services sleep after ~15 min idle and take 30–60s to wake up |
+| Zeabur ignores the Dockerfile | `ZBPACK_IGNORE_DOCKERFILE` variable is set, or filename doesn't match | Remove that variable, and confirm the file is named exactly `Dockerfile` at the repo root |
+| Service unreachable after deploy | No public domain generated yet | Go to the service's Networking tab and click "Generate Domain" |
+| Slow first response after idle time | Free-tier service auto-slept | Expected — send a request and wait a few seconds for it to wake up |
 | Transcription fails on long videos | File exceeds Groq's per-request size limit | Confirm chunking is enabled in `config.py`, or lower `MAX_VIDEO_DURATION_SECONDS` |
 | 403 / quota errors from SerpApi or Groq | Free-tier limit hit | Wait for the quota to reset, or upgrade the respective plan |
 

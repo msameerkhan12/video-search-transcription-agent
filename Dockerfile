@@ -1,6 +1,7 @@
-# Dockerfile for deploying the backend to Render (Environment: Docker).
-# Render injects the PORT env var at runtime and routes traffic to it,
-# so the container must bind to $PORT rather than a hardcoded port.
+# Dockerfile for deploying the backend to Zeabur.
+# Zeabur auto-detects this Dockerfile from the repo and builds/deploys it
+# directly. It sets the PORT env var at runtime — the container must bind
+# to it rather than a hardcoded port.
 
 FROM python:3.11-slim
 
@@ -20,5 +21,6 @@ COPY . .
 # "Known limitations" for details.
 RUN mkdir -p /app/temp_audio /app/knowledge_base
 
-# Render sets PORT dynamically; default to 10000 for local `docker run` testing.
-CMD ["sh", "-c", "uvicorn api:app --host 0.0.0.0 --port ${PORT:-10000}"]
+# Default to 8080 for local `docker run` testing; Zeabur overrides PORT at runtime.
+EXPOSE 8080
+CMD ["sh", "-c", "uvicorn api:app --host 0.0.0.0 --port ${PORT:-8080}"]
