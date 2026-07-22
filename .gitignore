@@ -1,0 +1,28 @@
+# Environment
+.env
+frontend/.env
+frontend/.env.local
+frontend/config.js
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Temp / runtime data
+temp_audio/
+knowledge_base/*.json
+!knowledge_base/.gitkeep
+
+# OS / editor
+.DS_Store
+.vscode/
+*.log
