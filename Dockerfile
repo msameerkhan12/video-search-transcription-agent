@@ -1,7 +1,8 @@
-# Dockerfile for deploying the backend to Zeabur.
-# Zeabur auto-detects this Dockerfile from the repo and builds/deploys it
-# directly. It sets the PORT env var at runtime — the container must bind
-# to it rather than a hardcoded port.
+# Dockerfile for deploying the backend to Northflank.
+# Northflank does NOT inject a PORT env var automatically — it detects the
+# port from this file's EXPOSE line (or you set one manually in the
+# service's Networking tab). So, unlike Render/Zeabur, this container
+# listens on a fixed port rather than reading $PORT.
 
 FROM python:3.11-slim
 
@@ -21,6 +22,7 @@ COPY . .
 # "Known limitations" for details.
 RUN mkdir -p /app/temp_audio /app/knowledge_base
 
-# Default to 8080 for local `docker run` testing; Zeabur overrides PORT at runtime.
+# Fixed port — make sure this matches the port configured in Northflank's
+# Networking tab for this service.
 EXPOSE 8080
-CMD ["sh", "-c", "uvicorn api:app --host 0.0.0.0 --port ${PORT:-8080}"]
+CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8080"]
