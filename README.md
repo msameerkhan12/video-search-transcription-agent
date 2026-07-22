@@ -104,7 +104,7 @@ exactly which step failed and why.
 | Transcription | Groq API, whisper-large-v3 | Fast, generous free tier (2,000 requests/day), OpenAI-compatible |
 | Backend | FastAPI | Thin, typed HTTP wrapper around the agent; async-friendly if the pipeline grows |
 | Frontend | Plain HTML/CSS/JS | Single page, a handful of UI states (query, steps, transcript, error) — no build step needed |
-| Backend deployment | Northflank (Docker) | Free Developer Sandbox plan (2 services, 1 vCPU, 1GB RAM, persistent volume support); note a payment method is required to activate any plan, including the free one, for identity verification |
+| Backend deployment | SnapDeploy (Docker) | Free tier: 10 deploys/day, up to 4 containers, 512MB RAM / 0.25 vCPU per container, auto-sleep/auto-wake, no credit card required per their stated free-tier terms |
 | Frontend deployment | Vercel | Free tier, zero-config static hosting, instant redeploys on push |
 
 ---
@@ -113,7 +113,7 @@ exactly which step failed and why.
 
 ```
 video-agent/
-├── Dockerfile                   # builds the backend container for Northflank
+├── Dockerfile                   # builds the backend container for SnapDeploy
 ├── agent.py                     # LangGraph pipeline definition
 ├── api.py                       # FastAPI app (POST /run, GET /health)
 ├── config.py                    # env vars, constants, size/duration caps
@@ -200,40 +200,38 @@ complete.
 
 ## 7. Deployment
 
-### Backend → Northflank
+### Backend → SnapDeploy
 
-1. Push this repo to GitHub if it isn't already there — Northflank deploys
+1. Push this repo to GitHub if it isn't already there — SnapDeploy deploys
    from a connected git repo.
-2. Go to https://northflank.com and sign up. **Note:** Northflank requires
-   a payment method on file to activate any plan — including the free
-   Developer Sandbox — for identity verification. Your card isn't charged
-   while you stay within the free plan's limits, but it is required
-   upfront (this is different from Render/Zeabur, which don't require one
-   for their free tiers).
-3. Create a new **Project**, then **Add Service** → **Deploy from Git
-   repository** and select this repo.
-4. Under **Build**, choose **Dockerfile** as the build method — Northflank
-   will pick up the `Dockerfile` at the repo root automatically.
-5. Under **Networking**, Northflank auto-detects the port from this
-   Dockerfile's `EXPOSE 8080` line. If it doesn't pick it up automatically,
-   manually add a public port and set it to **8080** to match the
-   Dockerfile's `CMD`.
-6. **Environment variables:** open the service's **Environment** tab and
-   add runtime variables:
+2. Go to https://snapdeploy.dev/register and sign up. Per SnapDeploy's
+   stated free-tier terms, no credit card is required for the free plan
+   (10 deploys/day, up to 4 containers). Confirm this holds true for your
+   account as you go through signup — if a card prompt appears at any
+   point, it contradicts their stated terms and is worth double-checking
+   before proceeding.
+3. Create a new deployment/service and connect this GitHub repo
+   (`m-sameerkhan/Video-Search-Transcription-Agent`), branch `main`.
+4. SnapDeploy should auto-detect the `Dockerfile` at the repo root and
+   build from it directly.
+5. **Port:** SnapDeploy auto-detects the port from this Dockerfile's
+   `EXPOSE 8080` line. If it asks you to confirm a port manually, use
+   **8080** to match the `CMD`.
+6. **Environment variables:** add these as runtime variables:
    - `SERPAPI_KEY`
    - `GROQ_API_KEY`
    - `ALLOWED_ORIGINS` — leave a placeholder like `http://localhost:5173`
-     for now; you'll update it once you have your Vercel URL (see below).
+     for now; update it once your Vercel URL is live (see below).
 
-   Never commit `.env` — secrets live only in Northflank's Environment tab.
-7. Deploy the service. Once it's running, Northflank gives it a public
-   HTTPS URL (via Let's Encrypt) under the service's networking settings —
-   that's your backend's base URL.
-8. Northflank rebuilds and redeploys automatically on every push to the
-   connected branch (configurable under the service's build settings).
-9. **Free-tier note:** the Developer Sandbox plan is intended for hobby
-   projects, not production traffic — keep an eye on the Environment/Usage
-   pages if you're running this beyond a demo.
+   Never commit `.env` — secrets live only in SnapDeploy's environment
+   variable settings.
+7. Deploy. SnapDeploy assigns a public URL on a `*.snapdeploy.app`
+   subdomain by default (custom domains are a paid "Always-On" feature).
+8. **Free-tier behavior:** the free tier auto-sleeps when idle and
+   auto-wakes in roughly 10-30 seconds on the next request — similar
+   cold-start tradeoff to Render's free tier. You're also limited to
+   10 deploys per day, which is generous for iterating on a small project
+   but worth knowing if you're pushing frequently.
 
 ### Frontend → Vercel
 
@@ -242,16 +240,14 @@ complete.
    - **Framework preset:** Other (it's static HTML/CSS/JS, no build step)
    - **Root directory:** `frontend/` (if the repo root contains other files)
 3. Before or after the first deploy, edit `frontend/config.js` (copied from
-   `config.example.js`) to point at your live Northflank service URL, e.g.:
+   `config.example.js`) to point at your live SnapDeploy URL, e.g.:
    ```js
-   window.API_BASE_URL = "https://<your-service>.code.run";
+   window.API_BASE_URL = "https://<your-service>.snapdeploy.app";
    ```
-   (Northflank's auto-generated URLs commonly use a `.code.run` domain —
-   confirm the exact one from your service's Networking tab.)
 4. Push the change — Vercel redeploys automatically on every push to the
    connected branch. Your frontend will be live at
    `https://<your-project>.vercel.app`.
-5. Go back to Northflank's Environment tab (step 6 above) and set
+5. Go back to SnapDeploy's environment variables (step 6 above) and set
    `ALLOWED_ORIGINS` to this Vercel URL, so CORS allows the frontend to
    call the backend.
 
@@ -323,15 +319,18 @@ Failure response (e.g. video too long):
 
 ## 9. Known Limitations
 
-- **Ephemeral storage.** Northflank's ephemeral filesystem is wiped on
-  every redeploy unless you attach a persistent volume — anything in
-  `/knowledge_base` or `/temp_audio` is lost otherwise. Fine for a demo;
-  add a Northflank volume or an external store (S3, a real database)
-  before relying on this for anything durable.
-- **Free plan requires a card on file.** Unlike Render or Zeabur's free
-  tiers, Northflank's free Developer Sandbox still requires a payment
-  method upfront for identity verification, even though you aren't
-  charged while staying within its limits.
+- **Ephemeral storage.** SnapDeploy's filesystem doesn't persist across
+  auto-sleep/auto-wake cycles or redeploys on the free tier — anything in
+  `/knowledge_base` or `/temp_audio` is lost. Fine for a demo; SnapDeploy's
+  free tier has no free database add-on either, so anything durable would
+  need an external store.
+- **10 deploys/day cap.** Generous for normal iteration, but worth pacing
+  if you're pushing many small commits in a short window.
+- **Auto-sleep on the free tier.** Free containers sleep when idle and
+  wake in roughly 10-30 seconds on the next request — same tradeoff as
+  Render's cold starts. Always-on (no sleep) is a paid feature.
+- **No custom domain on the free tier.** You get a `*.snapdeploy.app`
+  subdomain; custom domains require the paid Always-On tier.
 - **60-minute video cap.** Enforced before download, mainly to keep the
   container's disk usage bounded. A 60-minute video will often exceed
   Groq's free-tier 25MB upload limit on its own — chunking (below) is what
@@ -355,9 +354,9 @@ Failure response (e.g. video too long):
 |---|---|---|
 | `ffmpeg not found` error | ffmpeg isn't on PATH | Install ffmpeg and restart your terminal/shell |
 | CORS error in browser console | `ALLOWED_ORIGINS` doesn't include your frontend's URL | Add the exact frontend origin (including `https://`, no trailing slash) to the backend's `ALLOWED_ORIGINS` |
-| Northflank build doesn't use the Dockerfile | Build method set to buildpack instead of Dockerfile | In the service's build settings, explicitly select **Dockerfile** as the build method |
-| Service unreachable after deploy | No public port configured, or it doesn't match the Dockerfile's `EXPOSE`/`CMD` port | In the Networking tab, confirm a public port is set to **8080** |
-| Asked for a card just to try the free plan | Expected — Northflank requires a payment method for all plans, including free | Add a card; you won't be charged while within the Developer Sandbox's limits |
+| SnapDeploy build doesn't use the Dockerfile | Build method not set to Dockerfile | Explicitly select Dockerfile as the build method in the service settings, if given the option |
+| Service unreachable after deploy, or slow first response | Free-tier container was auto-asleep | Expected — send a request and wait 10-30 seconds for it to wake up |
+| Hit the daily deploy cap | More than 10 deploys in a day on the free tier | Wait for the daily limit to reset, or batch your commits before pushing |
 | Transcription fails on long videos | File exceeds Groq's per-request size limit | Confirm chunking is enabled in `config.py`, or lower `MAX_VIDEO_DURATION_SECONDS` |
 | 403 / quota errors from SerpApi or Groq | Free-tier limit hit | Wait for the quota to reset, or upgrade the respective plan |
 
