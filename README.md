@@ -432,7 +432,7 @@ Failure response (e.g. video too long):
   chunks and transcribed sequentially; longer videos mean more requests
   against Groq's daily quota and slower end-to-end runs (a ~45-50 minute
   video took roughly 5 minutes end-to-end in testing).
-- **Free-tier rate limits.** SerpApi: 100 searches/month. Groq: 2,000
+- **Free-tier rate limits.** SerpApi: 250 searches/month. Groq: 2,000
   transcription requests/day, 25MB/request. This agent does not queue or
   retry across these limits — a request that hits them fails with
   whatever error the provider returns.
