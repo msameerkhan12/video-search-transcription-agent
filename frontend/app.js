@@ -23,6 +23,8 @@ const resultTranscript = document.getElementById("resultTranscript");
 const resultPath = document.getElementById("resultPath");
 const toggleBtn = document.getElementById("toggleBtn");
 const thumbRow= document.getElementById("thumbRow")
+const kbList = document.getElementById("kbList");
+const kbRefreshBtn = document.getElementById("kbRefreshBtn");
 
 const STEP_ORDER = ["search", "extract", "transcribe", "save"];
 const STEP_TOOL_NAMES = {
@@ -187,6 +189,7 @@ async function runPipeline() {
       errorBanner.classList.add("visible");
     } else {
       showResult(data);
+      loadKnowledgeBase(); // refresh the list so the new entry shows up
     }
   } catch (err) {
     errorBanner.textContent = `Could not reach the backend at ${API_BASE_URL}. Is it running? (${err.message})`;
@@ -197,6 +200,61 @@ async function runPipeline() {
   }
 }
 
+// --- Knowledge base panel ---
+
+async function loadKnowledgeBase() {
+  kbList.innerHTML = `<div class="kb-empty">Loading…</div>`;
+  try {
+    const res = await fetch(`${API_BASE_URL}/knowledge_base`);
+    const entries = await res.json();
+    renderKnowledgeBase(entries);
+  } catch {
+    kbList.innerHTML = `<div class="kb-empty">Couldn't load knowledge base.</div>`;
+  }
+}
+
+function renderKnowledgeBase(entries) {
+  if (!entries.length) {
+    kbList.innerHTML = `<div class="kb-empty">No saved transcripts yet.</div>`;
+    return;
+  }
+  kbList.innerHTML = "";
+  entries.forEach((entry) => {
+    const item = document.createElement("button");
+    item.className = "kb-item";
+    item.innerHTML = `
+      <div class="kb-item-title">${entry.title}</div>
+      <div class="kb-item-meta">${[entry.channel, entry.duration].filter(Boolean).join(" · ")}</div>
+    `;
+    item.addEventListener("click", () => loadKBEntry(entry.file_name));
+    kbList.appendChild(item);
+  });
+}
+
+async function loadKBEntry(fileName) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/knowledge_base/${encodeURIComponent(fileName)}`);
+    const record = await res.json();
+    if (record.error) throw new Error(record.error);
+    showResultFromRecord(record, fileName);
+  } catch (err) {
+    errorBanner.textContent = `Could not load "${fileName}" (${err.message})`;
+    errorBanner.classList.add("visible");
+  }
+}
+
+function showResultFromRecord(record, fileName) {
+  errorBanner.classList.remove("visible");
+  pipelineEl.classList.remove("visible");
+  const transcriptText = record.transcript?.text || "";
+  showResult({
+    video_meta: record.video,
+    transcript_path: fileName,
+    transcript_preview: transcriptText.slice(0, 300) + (transcriptText.length > 300 ? "..." : ""),
+    transcript_full: transcriptText,
+  });
+}
+
 runBtn.addEventListener("click", runPipeline);
 resetBtn.addEventListener("click", resetForNewSearch);
 copyBtn.addEventListener("click", copyTranscript);
@@ -204,3 +262,5 @@ toggleBtn.addEventListener("click", toggleTranscript);
 queryInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") runPipeline();
 });
+kbRefreshBtn.addEventListener("click", loadKnowledgeBase);
+loadKnowledgeBase();

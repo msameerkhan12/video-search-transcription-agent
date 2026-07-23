@@ -3,12 +3,15 @@ api.py — FastAPI app that wraps the LangGraph agent pipeline over HTTP.
 
 Run locally with: uvicorn api:app --reload --port 8000
 """
+import json
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from agent import run_pipeline
-from config import ALLOWED_ORIGINS
+from config import ALLOWED_ORIGINS, KNOWLEDGE_BASE_DIR
 
 app = FastAPI(title="Video Search & Transcription Agent")
 
@@ -34,6 +37,14 @@ class RunResponse(BaseModel):
     steps_log: list = []
     error: str | None = None
     failed_step: str | None = None
+
+
+class KBListEntry(BaseModel):
+    file_name: str
+    title: str
+    channel: str | None = None
+    duration: str | None = None
+    saved_at: str | None = None
 
 
 @app.get("/health")
@@ -67,3 +78,36 @@ def run(request: RunRequest) -> RunResponse:
         transcript_full=transcript_text,
         steps_log=state.get("steps_log", []),
     )
+
+
+@app.get("/knowledge_base", response_model=list[KBListEntry])
+def list_knowledge_base() -> list[KBListEntry]:
+    """List saved transcripts, newest first."""
+    entries = []
+    if not KNOWLEDGE_BASE_DIR.exists():
+        return entries
+
+    for path in sorted(KNOWLEDGE_BASE_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        video = record.get("video", {})
+        entries.append(KBListEntry(
+            file_name=path.name,
+            title=video.get("title", path.stem),
+            channel=video.get("channel"),
+            duration=video.get("duration"),
+            saved_at=record.get("saved_at"),
+        ))
+    return entries
+
+
+@app.get("/knowledge_base/{file_name}")
+def get_knowledge_base_entry(file_name: str) -> dict:
+    """Fetch one saved transcript by file name."""
+    safe_name = Path(file_name).name  # blocks path traversal like "../../etc"
+    path = KNOWLEDGE_BASE_DIR / safe_name
+    if not path.is_file() or path.parent != KNOWLEDGE_BASE_DIR:
+        return {"error": "not found"}
+    return json.loads(path.read_text(encoding="utf-8"))
