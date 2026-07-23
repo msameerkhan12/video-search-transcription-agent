@@ -4,7 +4,7 @@ langgraph==0.2.62
 langchain-core==0.3.28
 python-dotenv==1.0.1
 groq==0.13.1
-yt-dlp==2026.07.04
+yt-dlp[default]==2026.7.4
 google-search-results==2.4.2
 pydub==0.25.1
 pydantic==2.10.4
