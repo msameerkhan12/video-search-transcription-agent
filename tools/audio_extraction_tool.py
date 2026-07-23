@@ -44,6 +44,17 @@ def extract_audio(video_url: str) -> str:
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
+        # Cloud-hosted IPs (Railway, HF Spaces, etc.) get flagged by YouTube's
+        # bot detection far more often than home connections. Requesting the
+        # Android client instead of the default web client sidesteps most of
+        # these "Sign in to confirm you're not a bot" errors without needing
+        # cookies. If this stops working, YouTube likely tightened detection
+        # again — check for a yt-dlp update first.
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "web"],
+            }
+        },
     }
 
     try:
