@@ -28,14 +28,22 @@ BASE_DIR = Path(__file__).resolve().parent
 YOUTUBE_COOKIES_FILE = BASE_DIR / "youtube_cookies.txt"
 YOUTUBE_COOKIES_B64 = os.getenv("YOUTUBE_COOKIES_B64", "")
 
+
+if YOUTUBE_COOKIES_FILE.exists():
+    print("Cookie size:", YOUTUBE_COOKIES_FILE.stat().st_size)
+
 if YOUTUBE_COOKIES_B64:
     import base64
 
     try:
         YOUTUBE_COOKIES_FILE.write_bytes(base64.b64decode(YOUTUBE_COOKIES_B64))
-    except Exception:
-        pass  # bad/missing env var — yt-dlp just falls back to cookie-less requests
-
+    except Exception as e:
+        print("Failed to decode cookies:", e)
+    # except Exception:
+    #     pass  # bad/missing env var — yt-dlp just falls back to cookie-less requests
+print("YOUTUBE_COOKIES_B64 present:", bool(YOUTUBE_COOKIES_B64))
+print("Cookie path:", YOUTUBE_COOKIES_FILE)
+print("Cookie exists:", YOUTUBE_COOKIES_FILE.exists())
 # --- Audio / Groq constraints ---
 # Groq's free-tier Whisper endpoint rejects uploads over 25MB and does not
 # chunk for you (checked against console.groq.com/docs/speech-to-text, Jul 2026).
