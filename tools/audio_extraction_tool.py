@@ -65,8 +65,13 @@ def extract_audio(video_url: str) -> str:
     # cloud-hosted IPs. Only attached if YOUTUBE_COOKIES_B64 was set and
     # decoded successfully at startup (see config.py) — safe to skip
     # otherwise, yt-dlp just falls back to the client-spoofing above.
+    print("AudioExtractionTool cookie path:", YOUTUBE_COOKIES_FILE, flush=True)
+    print("Cookie exists:", YOUTUBE_COOKIES_FILE.exists(), flush=True)
     if YOUTUBE_COOKIES_FILE.exists():
+        print("Using cookie file:", YOUTUBE_COOKIES_FILE, flush=True)
         ydl_opts["cookiefile"] = str(YOUTUBE_COOKIES_FILE)
+    else:
+        print("No cookie file found. Running yt-dlp without cookies.", flush=True)
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
