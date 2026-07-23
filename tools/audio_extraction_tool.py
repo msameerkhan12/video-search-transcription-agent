@@ -32,7 +32,7 @@ def extract_audio(video_url: str) -> str:
     output_template = str(TEMP_AUDIO_DIR / f"{job_id}.%(ext)s")
 
     ydl_opts = {
-        "format": "bestaudio/best",
+        "format": "bestaudio[protocol^=http]/bestaudio/best",
         "outtmpl": output_template,
         "postprocessors": [
             {
@@ -45,14 +45,17 @@ def extract_audio(video_url: str) -> str:
         "no_warnings": True,
         "noplaylist": True,
         # Cloud-hosted IPs (Railway, HF Spaces, etc.) get flagged by YouTube's
-        # bot detection far more often than home connections. Requesting the
-        # Android client instead of the default web client sidesteps most of
-        # these "Sign in to confirm you're not a bot" errors without needing
-        # cookies. If this stops working, YouTube likely tightened detection
-        # again — check for a yt-dlp update first.
+        # bot detection far more often than home connections. Cookies (added
+        # below) handle most of that now, so we prefer the web client first —
+        # it needs a JS runtime to solve YouTube's PO token / SABR challenges,
+        # which the Dockerfile installs nodejs for. Android is kept as a
+        # fallback for videos where the web client still comes up short.
+        # "formats: missing_pot" stops yt-dlp from silently hiding formats
+        # that require a PO token instead of erroring out entirely.
         "extractor_args": {
             "youtube": {
-                "player_client": ["android", "web"],
+                "player_client": ["web", "android"],
+                "formats": ["missing_pot"],
             }
         },
     }
