@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yt_dlp
 
-from config import TEMP_AUDIO_DIR, MAX_VIDEO_DURATION_SECONDS
+from config import TEMP_AUDIO_DIR, MAX_VIDEO_DURATION_SECONDS, YOUTUBE_COOKIES_FILE
 
 
 class AudioExtractionError(Exception):
@@ -56,6 +56,13 @@ def extract_audio(video_url: str) -> str:
             }
         },
     }
+
+    # Cookies are the most reliable fix for YouTube's bot detection on
+    # cloud-hosted IPs. Only attached if YOUTUBE_COOKIES_B64 was set and
+    # decoded successfully at startup (see config.py) — safe to skip
+    # otherwise, yt-dlp just falls back to the client-spoofing above.
+    if YOUTUBE_COOKIES_FILE.exists():
+        ydl_opts["cookiefile"] = str(YOUTUBE_COOKIES_FILE)
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

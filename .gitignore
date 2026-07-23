@@ -2,6 +2,8 @@
 .env
 frontend/.env
 frontend/.env.local
+frontend/config.js
+youtube_cookies.txt
 
 # Python
 __pycache__/
