@@ -25,6 +25,7 @@ const toggleBtn = document.getElementById("toggleBtn");
 const thumbRow= document.getElementById("thumbRow")
 const kbList = document.getElementById("kbList");
 const kbRefreshBtn = document.getElementById("kbRefreshBtn");
+const kbToggleBtn = document.getElementById("kbToggleBtn");
 
 const STEP_ORDER = ["search", "extract", "transcribe", "save"];
 const STEP_TOOL_NAMES = {
@@ -38,6 +39,7 @@ let previewTranscript = "";
 let fullTranscript = "";
 let showingFull = false;
 let currentVideoId = null;
+let kbCollapsed = false;
 
 function stepEl(step) {
   return pipelineEl.querySelector(`[data-step="${step}"]`);
@@ -64,6 +66,7 @@ function sleep(ms) {
 }
 
 function extractYouTubeId(url) {
+  if (!url) return null;
   const match = url.match(/(?:v=|youtu\.be\/|embed\/)([\w-]{11})/);
   return match ? match[1] : null;
 }
@@ -220,15 +223,53 @@ function renderKnowledgeBase(entries) {
   }
   kbList.innerHTML = "";
   entries.forEach((entry) => {
-    const item = document.createElement("button");
+    const videoId = extractYouTubeId(entry.video_url);
+
+    const item = document.createElement("div");
     item.className = "kb-item";
-    item.innerHTML = `
+
+    // Thumbnail — only rendered if we have a video id. Clicking it plays
+    // the video inline, independently of the text button next to it.
+    const thumb = document.createElement("div");
+    thumb.className = "kb-item-thumb";
+    if (videoId) {
+      thumb.innerHTML = `
+        <img src="https://img.youtube.com/vi/${videoId}/mqdefault.jpg" alt="" />
+        <button class="kb-play-overlay" aria-label="Play video"></button>
+      `;
+      thumb.querySelector(".kb-play-overlay").addEventListener("click", (e) => {
+        e.stopPropagation();
+        playKBThumb(thumb, videoId);
+      });
+    }
+
+    // Text portion — clicking this still loads the saved transcript,
+    // same behavior as before.
+    const text = document.createElement("button");
+    text.className = "kb-item-text";
+    text.innerHTML = `
       <div class="kb-item-title">${entry.title}</div>
       <div class="kb-item-meta">${[entry.channel, entry.duration].filter(Boolean).join(" · ")}</div>
     `;
-    item.addEventListener("click", () => loadKBEntry(entry.file_name));
+    text.addEventListener("click", () => loadKBEntry(entry.file_name));
+
+    item.appendChild(thumb);
+    item.appendChild(text);
     kbList.appendChild(item);
   });
+}
+
+// Swaps one KB item's thumbnail for a live autoplaying iframe, scoped to
+// that single item so playing one entry doesn't affect the others.
+function playKBThumb(thumbEl, videoId) {
+  thumbEl.innerHTML = `
+    <iframe
+      src="https://www.youtube.com/embed/${videoId}?autoplay=1"
+      title="YouTube video player"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+      allowfullscreen
+    ></iframe>
+  `;
 }
 
 async function loadKBEntry(fileName) {
@@ -255,6 +296,12 @@ function showResultFromRecord(record, fileName) {
   });
 }
 
+function toggleKB() {
+  kbCollapsed = !kbCollapsed;
+  kbList.classList.toggle("collapsed", kbCollapsed);
+  kbToggleBtn.textContent = kbCollapsed ? "Expand" : "Collapse";
+}
+
 runBtn.addEventListener("click", runPipeline);
 resetBtn.addEventListener("click", resetForNewSearch);
 copyBtn.addEventListener("click", copyTranscript);
@@ -263,4 +310,5 @@ queryInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") runPipeline();
 });
 kbRefreshBtn.addEventListener("click", loadKnowledgeBase);
+kbToggleBtn.addEventListener("click", toggleKB);
 loadKnowledgeBase();

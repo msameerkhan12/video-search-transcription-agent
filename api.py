@@ -45,6 +45,7 @@ class KBListEntry(BaseModel):
     channel: str | None = None
     duration: str | None = None
     saved_at: str | None = None
+    video_url: str | None = None
 
 
 @app.get("/health")
@@ -99,6 +100,7 @@ def list_knowledge_base() -> list[KBListEntry]:
             channel=video.get("channel"),
             duration=video.get("duration"),
             saved_at=record.get("saved_at"),
+            video_url=video.get("video_url"),
         ))
     return entries
 
