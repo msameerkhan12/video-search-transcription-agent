@@ -27,3 +27,4 @@ knowledge_base/*.json
 .DS_Store
 .vscode/
 *.log
+cookies.txt

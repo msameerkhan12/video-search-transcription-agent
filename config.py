@@ -24,36 +24,24 @@ ALLOWED_ORIGINS = [
 # YOUTUBE_COOKIES_B64 environment variable (see README "Deployment" section
 # for how to export and encode it). If it's not set, yt-dlp just runs without
 # cookies, same as before.
-# --- YouTube cookies (optional) ---
-# Cloud-hosted IPs get flagged by YouTube's bot detection far more often than
-# home connections, even with an up-to-date yt-dlp. Passing an authenticated
-# session's cookies is the most reliable workaround. Never commit a real
-# cookies.txt to the repo — instead, base64-encode it and set it as the
-# YOUTUBE_COOKIES_B64 environment variable.
 BASE_DIR = Path(__file__).resolve().parent
 YOUTUBE_COOKIES_FILE = BASE_DIR / "youtube_cookies.txt"
 YOUTUBE_COOKIES_B64 = os.getenv("YOUTUBE_COOKIES_B64", "")
+
+
+if YOUTUBE_COOKIES_FILE.exists():
+    print("Cookie size:", YOUTUBE_COOKIES_FILE.stat().st_size)
 
 if YOUTUBE_COOKIES_B64:
     import base64
 
     try:
         YOUTUBE_COOKIES_FILE.write_bytes(base64.b64decode(YOUTUBE_COOKIES_B64))
-        print("Successfully wrote cookie file.", flush=True)
-    except Exception as e:
-        print(f"Failed to decode cookies: {e}", flush=True)
-
-print("========== COOKIE DEBUG ==========", flush=True)
-print("YOUTUBE_COOKIES_B64 present:", bool(YOUTUBE_COOKIES_B64), flush=True)
-print("Cookie path:", YOUTUBE_COOKIES_FILE, flush=True)
-print("Cookie exists:", YOUTUBE_COOKIES_FILE.exists(), flush=True)
-
-if YOUTUBE_COOKIES_FILE.exists():
-    print("Cookie size:", YOUTUBE_COOKIES_FILE.stat().st_size, flush=True)
-else:
-    print("Cookie file was NOT created.", flush=True)
-
-print("==================================", flush=True)
+    except Exception:
+        pass  # bad/missing env var — yt-dlp just falls back to cookie-less requests
+print("YOUTUBE_COOKIES_B64 present:", bool(YOUTUBE_COOKIES_B64))
+print("Cookie path:", YOUTUBE_COOKIES_FILE)
+print("Cookie exists:", YOUTUBE_COOKIES_FILE.exists())
 # --- Audio / Groq constraints ---
 # Groq's free-tier Whisper endpoint rejects uploads over 25MB and does not
 # chunk for you (checked against console.groq.com/docs/speech-to-text, Jul 2026).
