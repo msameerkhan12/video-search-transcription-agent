@@ -41,8 +41,9 @@ def extract_audio(video_url: str) -> str:
                 "preferredquality": "128",  # keeps files smaller, plenty for ASR
             }
         ],
-        "quiet": True,
-        "no_warnings": True,
+        "quiet": False,
+        "no_warnings": False,
+        "verbose": True,
         "noplaylist": True,
         # Cloud-hosted IPs (Railway, HF Spaces, etc.) get flagged by YouTube's
         # bot detection far more often than home connections. Cookies (added
